@@ -7,6 +7,8 @@
 <style>
   body { font-family: system-ui, sans-serif; max-width: 860px; margin: 16px auto; padding: 0 12px; }
   .search-container { display: flex; align-items: center; gap: 10px; }
+  /* Filter Radio Button Styles */
+  input[type="radio"] { appearance: auto; -webkit-appearance: radio; width: 14px; height: 14px; margin: 0; cursor: pointer; }
   .home-title { font-size: 32px; font-weight: 700; cursor: pointer; user-select: none; line-height: 1; padding: 4px 8px; border: 2px solid #000; }
   .home-title:hover { background: #f2f2f2; }
   input { flex: 1; padding: 12px; font-size: 16px; box-sizing: border-box; }
@@ -41,6 +43,17 @@
   <div class="home-title" onclick="goHome()" title="Back to Home">中</div>
   <input id="q" placeholder="Type a character, word, English, jyutping, or #character:心, #jyutping:sam1, #pinyin:xīn, #radical:心">
 </div>
+<div style="display: flex; gap: 20px; align-items: center; margin: 10px 0 6px 4px; font-size: 15px; font-weight: 500; color: #333;">
+  <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+    <input type="radio" name="lenFilter" value="all" checked onchange="handleFilterChange()" style="width: 16px; height: 16px; accent-color: #000; cursor: pointer;"> All
+  </label>
+  <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+    <input type="radio" name="lenFilter" value="1" onchange="handleFilterChange()" style="width: 16px; height: 16px; accent-color: #000; cursor: pointer;"> 1 Character
+  </label>
+  <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+    <input type="radio" name="lenFilter" value="2" onchange="handleFilterChange()" style="width: 16px; height: 16px; accent-color: #000; cursor: pointer;"> 2 Characters
+  </label>
+</div>
 <div class="hint">Click any jyutping to view all characters/words with that pronunciation.</div>
 <div id="status" class="muted"></div>
 <div id="out"></div>
@@ -63,6 +76,7 @@ const status = document.getElementById('status');
 const items = [];
 const byJyutping = new Map();
 const byEntry = new Map();
+let currentLengthFilter = 'all'; // 'all', '1', or '2'
 const byEnglish = new Map();
 const byChar = new Map();
 const byRadical = new Map();
@@ -307,6 +321,7 @@ function search(term) {
 
   const t = term.toLowerCase();
   if (!t) {
+    resetFilterToAll();
     showRandomFrontPage();
     return;
   }
@@ -409,13 +424,20 @@ function search(term) {
     }
   }
 
-  const finalResult = [...groupedMap.values()].map(g => ({
+  let finalResult = [...groupedMap.values()].map(g => ({
     entry: g.entry,
     jyutpings: [...g.jyutpings],
     englishKey: [...g.englishKeys].filter(Boolean).join(', '),
     source: g.source,
     hanzi: byChar.get(g.entry.trim()) || null
   }));
+
+  // Apply character length filter if selected
+  if (currentLengthFilter === '1') {
+    finalResult = finalResult.filter(item => [...item.entry].length === 1);
+  } else if (currentLengthFilter === '2') {
+    finalResult = finalResult.filter(item => [...item.entry].length === 2);
+  }
 
   const isDetail = t.startsWith('#character:') || (finalResult.length === 1 && finalResult[0].entry.toLowerCase() === t);
   render(finalResult, "", false, isDetail);
@@ -432,6 +454,26 @@ function goHome() {
   q.value = "";
   history.pushState("", document.title, window.location.pathname + window.location.search);
   showRandomFrontPage();
+}
+function goHome() {
+  q.value = "";
+  resetFilterToAll();
+  history.pushState("", document.title, window.location.pathname + window.location.search);
+  showRandomFrontPage();
+}
+
+function resetFilterToAll() {
+  currentLengthFilter = 'all';
+  const radioAll = document.querySelector('input[name="lenFilter"][value="all"]');
+  if (radioAll) radioAll.checked = true;
+}
+
+function handleFilterChange() {
+  const selected = document.querySelector('input[name="lenFilter"]:checked');
+  if (selected) {
+    currentLengthFilter = selected.value;
+    search(q.value);
+  }
 }
 
 function keyOf(item) {
