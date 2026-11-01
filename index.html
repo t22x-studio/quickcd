@@ -68,6 +68,9 @@ const byChar = new Map();
 const byRadical = new Map();
 const byPinyin = new Map();
 const byPinyinBase = new Map();
+const CANGJIE_URL = "./cangjie.tsv";
+const byCangjie = new Map();       // code -> characters (e.g. "aaaa" -> ["𣊫", ...])
+const cangjieByChar = new Map();   // character -> array of { code, components }
 
 const TONE_RE = /[\u0300\u0301\u0304\u030c]/g;
 const pyKey = s => String(s).trim().toLowerCase().normalize('NFC');
@@ -142,6 +145,45 @@ function parseEnglishIndex(json) {
     }
   }
 }
+async function loadCangjieTsv(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load ${url}: ${res.status}`);
+  const text = await res.text();
+
+  for (const line of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    if (parts.length < 2) continue;
+
+    const code = parts[0].trim().toLowerCase();
+    const characters = parts[1].trim();
+    if (code === "code" || !code || !characters) continue;
+
+    const chars = [...characters.replace(/\s/g, "")];
+
+    if (!byCangjie.has(code)) byCangjie.set(code, []);
+    byCangjie.get(code).push(...chars);
+
+    for (const ch of chars) {
+      if (!cangjieByChar.has(ch)) cangjieByChar.set(ch, []);
+      // Map alphabetic key (e.g. "aaaa") to its component representation if available, 
+      // or fallback to the code itself. Here code acts as the component sequence map if 
+      // your tsv has mapping, or we convert standard code keys to visual keys if desired.
+      cangjieByChar.get(ch).push({ code, components: code });
+    }
+  }
+}
+
+// Helper to map alphabetic Cangjie codes to visual key representations if needed
+const CANGJIE_MAP = {
+  a:'日', b:'月', c:'金', d:'木', e:'水', f:'火', g:'土',
+  h:'竹', i:'戈', j:'十', k:'大', l:'中', m:'一', n:'弓',
+  o:'人', p:'心', q:'手', r:'口', s:'尸', t:'廿', u:'山',
+  v:'女', w:'田', x:'難', y:'卜', z:'　'
+};
+function formatCangjieComponents(code) {
+  return [...code.toLowerCase()].map(char => CANGJIE_MAP[char] || char).join('');
+}
 
 function render(list, titleNote = "", isPronunciationTable = false, isDetailView = false) {
   if (!list.length) {
@@ -182,6 +224,15 @@ function render(list, titleNote = "", isPronunciationTable = false, isDetailView
           ${pz}
         </div>
         ${rad}
+        ${(() => {
+          const cjs = cangjieByChar.get(item.entry.trim());
+          if (!cjs || !cjs.length) return '';
+          const cjHtml = cjs.map(c => {
+            const visual = formatCangjieComponents(c.code);
+            return `<span class="tag" style="${T}" onclick="searchByCangjie('${escapeJs(c.code)}')">${escapeHtml(visual)}(${escapeHtml(c.code)})</span>`;
+          }).join(' ');
+          return `<div style="margin-top: 10px; font-size: 18px;"><b>Cangjie (倉頡):</b><div style="margin-top: 6px;">${cjHtml}</div></div>`;
+        })()}
         ${item.englishKey ? `<div style="font-size: 18px; margin-top: 16px;"><b>English meanings:</b><br><div style="margin-top: 6px; font-size: 16px; color: #444;">${escapeHtml(item.englishKey)}</div></div>` : ''}
         <div style="margin-top: 20px;"><button onclick="goHome()" style="padding: 8px 16px; font-size: 14px; cursor: pointer;">← Back to Home</button></div>
       </div>`;
@@ -189,15 +240,26 @@ function render(list, titleNote = "", isPronunciationTable = false, isDetailView
   }
 
   // Standard Compact Grid List for multiple search results
-  out.innerHTML = headerHtml + list.map(item => `
-    <div class="card">
-      <div class="entry" style="cursor:pointer;" onclick="searchByCharacter('${escapeJs(item.entry)}')">${escapeHtml(item.entry)}</div>
-      <div class="section"><b>Jyutping:</b> ${
-        item.jyutpings.map(j => `<span class="tag" onclick="searchByJyutping('${escapeJs(j)}')">${escapeHtml(j)}</span>`).join(' ')
-      }</div>
-      ${item.englishKey ? `<div class="section"><b>English:</b> ${escapeHtml(item.englishKey)}</div>` : ''}
-    </div>
-  `).join('');
+  out.innerHTML = headerHtml + list.map(item => {
+    const cjs = cangjieByChar.get(item.entry.trim());
+    const cjSection = cjs && cjs.length ? `<div class="section"><b>Cangjie:</b> ${
+      cjs.map(c => {
+        const visual = formatCangjieComponents(c.code);
+        return `<span class="tag" onclick="searchByCangjie('${escapeJs(c.code)}')">${escapeHtml(visual)}(${escapeHtml(c.code)})</span>`;
+      }).join(' ')
+    }</div>` : '';
+
+    return `
+      <div class="card">
+        <div class="entry" style="cursor:pointer;" onclick="searchByCharacter('${escapeJs(item.entry)}')">${escapeHtml(item.entry)}</div>
+        <div class="section"><b>Jyutping:</b> ${
+          item.jyutpings.map(j => `<span class="tag" onclick="searchByJyutping('${escapeJs(j)}')">${escapeHtml(j)}</span>`).join(' ')
+        }</div>
+        ${cjSection}
+        ${item.englishKey ? `<div class="section"><b>English:</b> ${escapeHtml(item.englishKey)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
 }
 
 function searchByJyutping(jyutping) {
@@ -222,6 +284,13 @@ function searchByRadical(r) {
 
 function searchByCharacter(char) {
   const term = `#character:${char}`;
+  q.value = term;
+  location.hash = encodeURIComponent(term);
+  search(term);
+}
+
+function searchByCangjie(code) {
+  const term = `#cangjie:${code}`;
   q.value = term;
   location.hash = encodeURIComponent(term);
   search(term);
@@ -278,6 +347,13 @@ function search(term) {
     const chars = (byRadical.get(rq) || []).map(c => ({ entry: c }));
     render(chars, `Radical ${rq}`, true);
     status.textContent = `${chars.length} character(s) with radical "${rq}"`;
+    return;
+  }
+  if (t.startsWith('#cangjie:')) {
+    const cq = term.slice(9).trim().toLowerCase();
+    const chars = (byCangjie.get(cq) || []).map(c => ({ entry: c }));
+    render(chars, `Cangjie Code: ${cq} (${formatCangjieComponents(cq)})`, true);
+    status.textContent = `${chars.length} character(s) with Cangjie code "${cq}"`;
     return;
   }
 
@@ -410,6 +486,12 @@ async function build() {
     parseEnglishIndex(englishIndex);
     if (cdict) for (const [ch, d] of Object.entries(cdict)) if (d) addHanzi(d.text || ch, d);
 
+    try {
+      await loadCangjieTsv(CANGJIE_URL);
+    } catch (e) {
+      console.warn("Could not load Cangjie TSV:", e);
+    }
+
     status.textContent = `Loaded ${items.length} entries.`;
   } catch (err) {
     console.warn("JSON load timed out or failed. Using offline sample data.", err);
@@ -433,10 +515,10 @@ q.addEventListener('input', e => {
     goHome();
     return;
   }
-  // Debounce search by 300ms so it doesn't search on every single keystroke
+  // Debounce search by 300ms->600ms so it doesn't search on every single keystroke
   debounceTimer = setTimeout(() => {
     search(val);
-  }, 500);
+  }, 600);
 });
 
 q.addEventListener('keydown', e => {
