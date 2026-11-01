@@ -13,6 +13,6 @@ Designed to run instantly in any browser with zero complex backend setup.
 **Try It Out**
 
 Access the live dictionary page 
-[http://t22x-studio.github.io/quickcd/] (http://t22x-studio.github.io/quickcd/)
+https://t22x-studio.github.io/quickcd/
 directly in your browser and start searching instantly
 -—no installation required!
